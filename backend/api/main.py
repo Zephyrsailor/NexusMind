@@ -1,6 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import json
 import asyncio
 import uuid
@@ -8,7 +7,7 @@ from typing import Dict
 import logging
 
 from ..core.config import settings
-from ..core.orchestrator import NexusMindOrchestrator
+from ..core.orchestrator import SimpleOrchestrator
 from ..models.schemas import UserRequest, TaskResponse, TaskStatus
 
 # 配置日志
@@ -17,9 +16,9 @@ logger = logging.getLogger(__name__)
 
 # 创建FastAPI应用
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
-    description="NexusMind智能体联邦平台 - 核心协调服务",
+    title="NexusMind智能体平台",
+    version="1.0.0",
+    description="基于语音和视觉的智能体协调平台",
     debug=settings.debug
 )
 
@@ -33,15 +32,17 @@ app.add_middleware(
 )
 
 # 全局实例
-orchestrator = NexusMindOrchestrator()
+orchestrator = SimpleOrchestrator()
 active_connections: Dict[str, WebSocket] = {}
 
 
 @app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
-    logger.info(f"启动 {settings.app_name} v{settings.app_version}")
-    logger.info("核心协调器已初始化")
+    logger.info("🚀 启动NexusMind智能体平台")
+    logger.info("正在初始化协调器...")
+    await orchestrator.initialize()
+    logger.info("✅ 系统启动完成")
 
 
 @app.on_event("shutdown")
@@ -57,10 +58,11 @@ async def shutdown_event():
 async def root():
     """根路径健康检查"""
     return {
-        "service": settings.app_name,
-        "version": settings.app_version,
+        "service": "NexusMind智能体平台",
+        "version": "1.0.0", 
         "status": "running",
-        "message": "NexusMind核心协调服务运行正常"
+        "message": "🧠 NexusMind智能协调服务运行正常",
+        "features": ["语音录制与识别", "摄像头拍照与分析", "智能决策协调"]
     }
 
 
@@ -69,8 +71,8 @@ async def health_check():
     """健康检查接口"""
     return {
         "status": "healthy",
-        "service": settings.app_name,
-        "version": settings.app_version,
+        "service": "NexusMind",
+        "version": "1.0.0",
         "orchestrator": "ready"
     }
 
@@ -104,7 +106,12 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         # 发送欢迎消息
         await websocket.send_json({
             "type": "connection",
-            "message": f"欢迎连接到NexusMind！客户端ID: {client_id}",
+            "message": f"🎉 欢迎连接到NexusMind！客户端ID: {client_id}",
+            "features": {
+                "audio": "语音录制与识别",
+                "camera": "摄像头拍照与分析",
+                "status": "设备状态查询"
+            },
             "timestamp": str(asyncio.get_event_loop().time())
         })
         
@@ -148,7 +155,7 @@ async def handle_user_request_ws(websocket: WebSocket, message_data: dict, clien
         await websocket.send_json({
             "type": "task_started",
             "task_id": task_id,
-            "message": "正在处理您的请求...",
+            "message": "🔄 正在处理您的请求...",
             "status": TaskStatus.PROCESSING
         })
         
@@ -169,60 +176,101 @@ async def handle_user_request_ws(websocket: WebSocket, message_data: dict, clien
         logger.error(f"处理WebSocket请求时发生错误: {str(e)}")
         await websocket.send_json({
             "type": "error",
-            "message": f"处理请求时发生错误: {str(e)}"
+            "message": f"❌ 处理请求时发生错误: {str(e)}"
         })
 
 
 @app.get("/api/v1/status")
 async def get_system_status():
     """获取系统状态"""
-    return {
-        "orchestrator": {
-            "status": "running",
-            "tools_count": len(orchestrator.tools),
-            "tools": [tool.name for tool in orchestrator.tools]
-        },
-        "connections": {
-            "active_websocket_connections": len(active_connections),
-            "client_ids": list(active_connections.keys())
-        },
-        "config": {
-            "llm_provider": settings.llm_provider,
-            "llm_model": settings.llm_model,
-            "max_concurrent_tasks": settings.max_concurrent_tasks
+    try:
+        # 获取Agent状态
+        from ..core.audio_agent import AudioAgent
+        from ..core.camera_agent import CameraAgent
+        
+        audio_agent = AudioAgent()
+        camera_agent = CameraAgent()
+        
+        audio_status = await audio_agent.get_status()
+        camera_status = await camera_agent.get_status()
+        
+        return {
+            "orchestrator": {
+                "status": "running",
+                "type": "SimpleOrchestrator"
+            },
+            "agents": {
+                "audio": audio_status,
+                "camera": camera_status
+            },
+            "connections": {
+                "active_websocket_connections": len(active_connections),
+                "client_ids": list(active_connections.keys())
+            },
+            "system_ready": any([
+                audio_status.get("status") == "ready",
+                camera_status.get("status") == "ready"
+            ])
         }
-    }
+    except Exception as e:
+        logger.error(f"获取系统状态失败: {e}")
+        return {
+            "error": str(e),
+            "status": "error"
+        }
 
 
-@app.post("/api/v1/tools/test")
-async def test_tools():
-    """测试本地工具功能"""
+@app.post("/api/v1/agents/test")
+async def test_agents():
+    """测试Agent功能"""
     test_results = {}
     
     try:
-        # 测试计算器
-        calc_request = UserRequest(message="计算 2 + 3 * 4")
-        calc_response = await orchestrator.process_request(calc_request)
-        test_results["calculator"] = {
-            "status": calc_response.status,
-            "result": calc_response.payload
+        # 测试语音Agent状态
+        audio_request = UserRequest(message="设备状态")
+        audio_response = await orchestrator.process_request(audio_request)
+        test_results["audio_status"] = {
+            "status": audio_response.status,
+            "result": audio_response.payload
         }
         
-        # 测试文本解析器
-        text_request = UserRequest(message="请分析这段文本：Hello world! 这是一个测试。联系邮箱：test@example.com")
-        text_response = await orchestrator.process_request(text_request)
-        test_results["text_parser"] = {
-            "status": text_response.status,
-            "result": text_response.payload
+        # 测试摄像头Agent状态
+        camera_request = UserRequest(message="摄像头状态")
+        camera_response = await orchestrator.process_request(camera_request)
+        test_results["camera_status"] = {
+            "status": camera_response.status,
+            "result": camera_response.payload
         }
         
         return {
-            "message": "工具测试完成",
+            "message": "Agent测试完成",
             "results": test_results
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"工具测试失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Agent测试失败: {str(e)}")
+
+
+@app.post("/api/v1/audio/record")
+async def record_audio(duration: int = 5):
+    """录音接口"""
+    try:
+        request = UserRequest(message=f"录音{duration}秒")
+        response = await orchestrator.process_request(request)
+        return response.payload
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"录音失败: {str(e)}")
+
+
+@app.post("/api/v1/camera/capture")
+async def capture_image():
+    """拍照接口"""
+    try:
+        request = UserRequest(message="拍照")
+        response = await orchestrator.process_request(request)
+        return response.payload
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"拍照失败: {str(e)}")
 
 
 if __name__ == "__main__":

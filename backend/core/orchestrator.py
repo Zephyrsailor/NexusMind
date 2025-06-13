@@ -1,258 +1,270 @@
-from typing import Dict, Any, List, Optional
-import json
+import asyncio
 import uuid
+import re
+from typing import Dict, Any, Optional
 from datetime import datetime
+import logging
 
-from langchain.llms.base import LLM
-from langchain_openai import ChatOpenAI
-from langchain.agents import AgentExecutor, create_openai_functions_agent
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import BaseMessage, HumanMessage, AIMessage
-from langgraph import StateGraph, END
-from langgraph.graph import Graph
-from pydantic import BaseModel
+from .audio_agent import AudioAgent
+from .camera_agent import CameraAgent
+from ..models.schemas import UserRequest, TaskResponse, TaskStatus
 
-from .tools import LocalCalculatorTool, LocalTextParserTool
-from .config import settings
-from ..models.schemas import TaskState, TaskStatus, UserRequest, TaskResponse
+logger = logging.getLogger(__name__)
 
 
-class OrchestratorState(BaseModel):
-    """协调器状态模型"""
-    task_id: str
-    user_request: UserRequest
-    current_step: str = "start"
-    steps_completed: List[str] = []
-    intermediate_results: Dict[str, Any] = {}
-    final_result: Optional[Dict[str, Any]] = None
-    error_message: Optional[str] = None
-    messages: List[BaseMessage] = []
-    
-    class Config:
-        arbitrary_types_allowed = True
-
-
-class NexusMindOrchestrator:
-    """NexusMind核心协调器"""
+class SimpleOrchestrator:
+    """简化版智能协调器"""
     
     def __init__(self):
-        self.llm = self._initialize_llm()
-        self.tools = self._initialize_tools()
-        self.graph = self._build_graph()
+        self.audio_agent = AudioAgent()
+        self.camera_agent = CameraAgent()
+        self.agents_initialized = False
         
-    def _initialize_llm(self) -> LLM:
-        """初始化LLM"""
-        if settings.llm_provider == "openai":
-            return ChatOpenAI(
-                model=settings.llm_model,
-                temperature=settings.llm_temperature,
-                max_tokens=settings.llm_max_tokens,
-                api_key=settings.llm_api_key,
-                base_url=settings.llm_base_url
-            )
-        else:
-            # 可以扩展支持其他LLM提供商
-            raise ValueError(f"不支持的LLM提供商: {settings.llm_provider}")
-    
-    def _initialize_tools(self) -> List:
-        """初始化本地工具"""
-        return [
-            LocalCalculatorTool(),
-            LocalTextParserTool()
-        ]
-    
-    def _build_graph(self) -> StateGraph:
-        """构建LangGraph决策图"""
-        # 创建状态图
-        workflow = StateGraph(OrchestratorState)
+    async def initialize(self):
+        """初始化所有Agent"""
+        if self.agents_initialized:
+            return
+            
+        logger.info("正在初始化内置Agent...")
         
-        # 添加节点
-        workflow.add_node("analyze_request", self._analyze_request)
-        workflow.add_node("plan_execution", self._plan_execution)
-        workflow.add_node("execute_local_tools", self._execute_local_tools)
-        workflow.add_node("format_response", self._format_response)
+        # 初始化语音Agent
+        audio_ok = await self.audio_agent.initialize()
+        logger.info(f"语音Agent初始化: {'成功' if audio_ok else '失败'}")
         
-        # 设置入口点
-        workflow.set_entry_point("analyze_request")
+        # 初始化摄像头Agent
+        camera_ok = await self.camera_agent.initialize()
+        logger.info(f"摄像头Agent初始化: {'成功' if camera_ok else '失败'}")
         
-        # 添加边（决策路径）
-        workflow.add_edge("analyze_request", "plan_execution")
-        workflow.add_conditional_edges(
-            "plan_execution",
-            self._decide_execution_path,
-            {
-                "local_tools": "execute_local_tools",
-                "format_response": "format_response"
-            }
-        )
-        workflow.add_edge("execute_local_tools", "format_response")
-        workflow.add_edge("format_response", END)
+        self.agents_initialized = True
         
-        return workflow.compile()
-    
     async def process_request(self, user_request: UserRequest) -> TaskResponse:
         """处理用户请求"""
         task_id = str(uuid.uuid4())
         
-        # 初始化状态
-        initial_state = OrchestratorState(
-            task_id=task_id,
-            user_request=user_request,
-            messages=[HumanMessage(content=user_request.message)]
-        )
-        
         try:
-            # 执行图
-            final_state = await self.graph.ainvoke(initial_state)
+            # 确保Agent已初始化
+            await self.initialize()
             
-            # 返回响应
+            # 分析用户意图
+            intent = await self._analyze_intent(user_request.message)
+            
+            # 执行相应操作
+            result = await self._execute_action(intent, user_request)
+            
             return TaskResponse(
                 task_id=task_id,
                 status=TaskStatus.COMPLETED,
-                message="任务已完成",
-                payload=final_state.final_result
+                message="处理完成",
+                payload=result
             )
             
         except Exception as e:
+            logger.error(f"处理请求失败: {e}")
             return TaskResponse(
                 task_id=task_id,
                 status=TaskStatus.FAILED,
                 message=f"处理失败: {str(e)}"
             )
     
-    def _analyze_request(self, state: OrchestratorState) -> OrchestratorState:
-        """分析用户请求"""
-        state.current_step = "analyze_request"
-        state.steps_completed.append("analyze_request")
+    async def _analyze_intent(self, message: str) -> Dict[str, Any]:
+        """分析用户意图（简单规则匹配）"""
+        message_lower = message.lower()
         
-        # 使用LLM分析用户意图
-        analysis_prompt = f"""
-        请分析以下用户请求：
-        "{state.user_request.message}"
+        intent = {
+            "type": "unknown",
+            "confidence": 0.0,
+            "params": {}
+        }
         
-        请识别：
-        1. 用户的主要意图
-        2. 是否需要使用工具
-        3. 需要哪些信息或计算
+        # 语音相关意图
+        if any(keyword in message_lower for keyword in ['录音', '语音', '说话', '听', 'record', 'audio', 'speech']):
+            intent["type"] = "audio"
+            intent["confidence"] = 0.9
+            
+            # 提取录音时长
+            duration_match = re.search(r'(\d+)[秒|分]', message)
+            if duration_match:
+                duration = int(duration_match.group(1))
+                if '分' in message:
+                    duration *= 60
+                intent["params"]["duration"] = min(duration, 30)  # 最多30秒
+            else:
+                intent["params"]["duration"] = 5  # 默认5秒
+                
+            # 判断是否需要识别
+            if any(keyword in message_lower for keyword in ['识别', '转换', '文字', 'recognize', 'stt']):
+                intent["params"]["action"] = "record_and_recognize"
+            else:
+                intent["params"]["action"] = "record_audio"
         
-        以JSON格式返回分析结果。
-        """
+        # 摄像头相关意图
+        elif any(keyword in message_lower for keyword in ['拍照', '摄像', '照片', '图片', 'photo', 'camera', 'capture']):
+            intent["type"] = "camera"
+            intent["confidence"] = 0.9
+            
+            # 提取拍照数量
+            count_match = re.search(r'(\d+)[张|次|个]', message)
+            if count_match:
+                count = int(count_match.group(1))
+                intent["params"]["count"] = min(count, 10)  # 最多10张
+            else:
+                intent["params"]["count"] = 1
+                
+            # 判断是否需要分析
+            if any(keyword in message_lower for keyword in ['分析', '检测', '识别', 'analyze', 'detect']):
+                intent["params"]["action"] = "capture_and_analyze"
+            elif intent["params"]["count"] > 1:
+                intent["params"]["action"] = "capture_multiple"
+            else:
+                intent["params"]["action"] = "capture_image"
+        
+        # 状态查询
+        elif any(keyword in message_lower for keyword in ['状态', '设备', '可用', 'status', 'device']):
+            intent["type"] = "status"
+            intent["confidence"] = 0.8
+        
+        # 基础对话
+        else:
+            intent["type"] = "chat"
+            intent["confidence"] = 0.5
+            
+        logger.info(f"意图分析结果: {intent}")
+        return intent
+    
+    async def _execute_action(self, intent: Dict[str, Any], user_request: UserRequest) -> Dict[str, Any]:
+        """执行具体操作"""
+        intent_type = intent["type"]
+        params = intent.get("params", {})
+        
+        if intent_type == "audio":
+            return await self._handle_audio_request(params)
+            
+        elif intent_type == "camera":
+            return await self._handle_camera_request(params)
+            
+        elif intent_type == "status":
+            return await self._handle_status_request()
+            
+        elif intent_type == "chat":
+            return await self._handle_chat_request(user_request.message)
+            
+        else:
+            return {
+                "success": False,
+                "message": f"暂不支持的请求类型: {intent_type}",
+                "suggestion": "请尝试语音录制、拍照或查询设备状态"
+            }
+    
+    async def _handle_audio_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """处理语音请求"""
+        action = params.get("action", "record_audio")
+        duration = params.get("duration", 5)
         
         try:
-            response = self.llm.invoke(analysis_prompt)
-            analysis = {
-                "intent": "分析用户意图",
-                "requires_tools": True,
-                "analysis": response.content if hasattr(response, 'content') else str(response)
-            }
-            state.intermediate_results["request_analysis"] = analysis
-        except Exception as e:
-            state.intermediate_results["request_analysis"] = {
-                "error": f"分析失败: {str(e)}"
-            }
-        
-        return state
-    
-    def _plan_execution(self, state: OrchestratorState) -> OrchestratorState:
-        """规划执行计划"""
-        state.current_step = "plan_execution"
-        state.steps_completed.append("plan_execution")
-        
-        user_message = state.user_request.message.lower()
-        
-        # 简单的规则匹配决定是否需要工具
-        needs_calculation = any(op in user_message for op in ['+', '-', '*', '/', '计算', '算', 'calculate'])
-        needs_text_parsing = any(keyword in user_message for keyword in ['解析', '分析', '提取', 'parse', 'analyze'])
-        
-        execution_plan = {
-            "needs_local_tools": needs_calculation or needs_text_parsing,
-            "tools_required": []
-        }
-        
-        if needs_calculation:
-            execution_plan["tools_required"].append("local_calculator")
-        
-        if needs_text_parsing:
-            execution_plan["tools_required"].append("local_text_parser")
-        
-        state.intermediate_results["execution_plan"] = execution_plan
-        return state
-    
-    def _decide_execution_path(self, state: OrchestratorState) -> str:
-        """决定执行路径"""
-        plan = state.intermediate_results.get("execution_plan", {})
-        
-        if plan.get("needs_local_tools", False):
-            return "local_tools"
-        else:
-            return "format_response"
-    
-    def _execute_local_tools(self, state: OrchestratorState) -> OrchestratorState:
-        """执行本地工具"""
-        state.current_step = "execute_local_tools"
-        state.steps_completed.append("execute_local_tools")
-        
-        plan = state.intermediate_results.get("execution_plan", {})
-        tools_required = plan.get("tools_required", [])
-        tool_results = {}
-        
-        user_message = state.user_request.message
-        
-        for tool_name in tools_required:
-            try:
-                if tool_name == "local_calculator":
-                    # 提取数学表达式
-                    calculator = LocalCalculatorTool()
-                    # 简单提取：查找数学表达式模式
-                    import re
-                    math_patterns = re.findall(r'[\d+\-*/().]+', user_message)
-                    if math_patterns:
-                        expression = math_patterns[0]
-                        result = calculator._run(expression)
-                        tool_results["calculator"] = result
-                    else:
-                        tool_results["calculator"] = "未找到有效的数学表达式"
+            if action == "record_and_recognize":
+                result = await self.audio_agent.record_and_recognize(duration)
+            else:
+                result = await self.audio_agent.record_audio(duration)
                 
-                elif tool_name == "local_text_parser":
-                    parser = LocalTextParserTool()
-                    result = parser._run(user_message, "general")
-                    tool_results["text_parser"] = result
-                    
-            except Exception as e:
-                tool_results[tool_name] = f"工具执行错误: {str(e)}"
-        
-        state.intermediate_results["tool_results"] = tool_results
-        return state
+            return {
+                "success": result.get("success", False),
+                "agent_type": "audio",
+                "action": action,
+                "result": result,
+                "message": result.get("message", "语音处理完成")
+            }
+            
+        except Exception as e:
+            logger.error(f"语音处理失败: {e}")
+            return {
+                "success": False,
+                "agent_type": "audio",
+                "error": str(e),
+                "message": "语音处理过程中发生错误"
+            }
     
-    def _format_response(self, state: OrchestratorState) -> OrchestratorState:
-        """格式化最终响应"""
-        state.current_step = "format_response"
-        state.steps_completed.append("format_response")
+    async def _handle_camera_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """处理摄像头请求"""
+        action = params.get("action", "capture_image")
+        count = params.get("count", 1)
         
-        # 收集所有结果
-        analysis = state.intermediate_results.get("request_analysis", {})
-        plan = state.intermediate_results.get("execution_plan", {})
-        tool_results = state.intermediate_results.get("tool_results", {})
-        
-        # 构建最终响应
-        response_data = {
-            "user_request": state.user_request.message,
-            "analysis": analysis,
-            "execution_plan": plan,
-            "results": tool_results,
-            "timestamp": datetime.now().isoformat()
+        try:
+            if action == "capture_and_analyze":
+                result = await self.camera_agent.capture_and_analyze()
+            elif action == "capture_multiple":
+                result = await self.camera_agent.capture_multiple(count)
+            else:
+                result = await self.camera_agent.capture_image()
+                
+            return {
+                "success": result.get("success", False),
+                "agent_type": "camera",
+                "action": action,
+                "result": result,
+                "message": result.get("message", "图像处理完成")
+            }
+            
+        except Exception as e:
+            logger.error(f"摄像头处理失败: {e}")
+            return {
+                "success": False,
+                "agent_type": "camera", 
+                "error": str(e),
+                "message": "图像处理过程中发生错误"
+            }
+    
+    async def _handle_status_request(self) -> Dict[str, Any]:
+        """处理状态查询请求"""
+        try:
+            audio_status = await self.audio_agent.get_status()
+            camera_status = await self.camera_agent.get_status()
+            
+            return {
+                "success": True,
+                "agent_type": "system",
+                "action": "status_check",
+                "result": {
+                    "audio_agent": audio_status,
+                    "camera_agent": camera_status,
+                    "system_ready": audio_status.get("status") == "ready" or camera_status.get("status") == "ready"
+                },
+                "message": "系统状态查询完成"
+            }
+            
+        except Exception as e:
+            logger.error(f"状态查询失败: {e}")
+            return {
+                "success": False,
+                "agent_type": "system",
+                "error": str(e),
+                "message": "状态查询过程中发生错误"
+            }
+    
+    async def _handle_chat_request(self, message: str) -> Dict[str, Any]:
+        """处理基础对话请求"""
+        responses = {
+            "你好": "您好！我是NexusMind智能助手，可以帮您进行语音录制和图像拍摄。",
+            "帮助": "我可以帮您：\n1. 语音录制和识别\n2. 拍照和图像分析\n3. 设备状态查询",
+            "功能": "主要功能：\n• 录音：'请录音5秒'\n• 语音识别：'录音并识别'\n• 拍照：'请拍照'\n• 图像分析：'拍照并分析'\n• 状态查询：'设备状态'"
         }
         
-        # 生成友好的回复消息
-        if tool_results:
-            reply_parts = ["根据您的请求，我已经处理完成："]
-            for tool, result in tool_results.items():
-                reply_parts.append(f"\n• {tool}: {result}")
-            reply_message = "\n".join(reply_parts)
-        else:
-            reply_message = f"我已经收到您的消息：'{state.user_request.message}'。目前这是一个基础响应，更多功能正在开发中。"
+        # 简单的关键词匹配
+        for key, response in responses.items():
+            if key in message:
+                return {
+                    "success": True,
+                    "agent_type": "chat",
+                    "action": "basic_chat",
+                    "result": {"reply": response},
+                    "message": response
+                }
         
-        response_data["reply_message"] = reply_message
-        state.final_result = response_data
-        
-        return state
+        return {
+            "success": True,
+            "agent_type": "chat", 
+            "action": "basic_chat",
+            "result": {
+                "reply": f"我已收到您的消息：'{message}'。请告诉我您想要录音还是拍照？"
+            },
+            "message": "基础对话响应"
+        }

@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NexusMind WebSocket 测试客户端</title>
+    <title>NexusMind 语音摄像头测试客户端</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -85,6 +85,12 @@
             border-left: 4px solid #667eea;
             background: white;
         }
+        .message.success {
+            border-left-color: #48bb78;
+        }
+        .message.error {
+            border-left-color: #f56565;
+        }
         .message-time {
             font-size: 12px;
             color: #718096;
@@ -97,9 +103,17 @@
         .examples {
             margin-top: 20px;
         }
+        .example-category {
+            margin-bottom: 15px;
+        }
+        .category-title {
+            font-weight: bold;
+            color: #4a5568;
+            margin-bottom: 8px;
+        }
         .example-btn {
             background: #48bb78;
-            margin: 5px 5px 5px 0;
+            margin: 3px 3px 3px 0;
             padding: 8px 12px;
             font-size: 12px;
             width: auto;
@@ -108,11 +122,43 @@
         .example-btn:hover {
             background: #38a169;
         }
+        .example-btn.audio {
+            background: #ed8936;
+        }
+        .example-btn.audio:hover {
+            background: #dd6b20;
+        }
+        .example-btn.camera {
+            background: #9f7aea;
+        }
+        .example-btn.camera:hover {
+            background: #805ad5;
+        }
+        .example-btn.system {
+            background: #4299e1;
+        }
+        .example-btn.system:hover {
+            background: #3182ce;
+        }
+        .feature-info {
+            background: #edf2f7;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🧠 NexusMind WebSocket 测试客户端</h1>
+        <h1>🧠 NexusMind 语音摄像头测试客户端</h1>
+        
+        <div class="feature-info">
+            <strong>🎯 功能说明:</strong><br>
+            • <strong>🎤 语音功能:</strong> 录音、语音识别<br>
+            • <strong>📷 摄像头功能:</strong> 拍照、图像分析、人脸检测<br>
+            • <strong>🔧 系统功能:</strong> 设备状态查询、帮助信息
+        </div>
         
         <div id="status" class="status disconnected">
             ❌ 未连接到服务器
@@ -136,17 +182,44 @@
         <button id="sendBtn" disabled>📤 发送消息</button>
         
         <div class="examples">
-            <label>💡 快速测试示例:</label><br>
-            <button class="example-btn" onclick="setMessage('你好，我是新用户')">基础对话</button>
-            <button class="example-btn" onclick="setMessage('请计算 2 + 3 * 4')">数学计算</button>
-            <button class="example-btn" onclick="setMessage('请分析这段文本：Hello world! 联系邮箱：test@example.com')">文本分析</button>
-            <button class="example-btn" onclick="setMessage('分析文本 计算 5 + 7 并执行计算')">混合任务</button>
+            <label>💡 功能测试示例:</label>
+            
+            <div class="example-category">
+                <div class="category-title">🎤 语音功能测试</div>
+                <button class="example-btn audio" onclick="setMessage('录音5秒')">录音5秒</button>
+                <button class="example-btn audio" onclick="setMessage('录音并识别')">语音识别</button>
+                <button class="example-btn audio" onclick="setMessage('录音10秒')">录音10秒</button>
+                <button class="example-btn audio" onclick="setMessage('语音转文字')">语音转文字</button>
+            </div>
+            
+            <div class="example-category">
+                <div class="category-title">📷 摄像头功能测试</div>
+                <button class="example-btn camera" onclick="setMessage('拍照')">拍照</button>
+                <button class="example-btn camera" onclick="setMessage('拍照并分析')">拍照并分析</button>
+                <button class="example-btn camera" onclick="setMessage('拍3张照片')">连拍3张</button>
+                <button class="example-btn camera" onclick="setMessage('拍照检测人脸')">人脸检测</button>
+            </div>
+            
+            <div class="example-category">
+                <div class="category-title">🔧 系统功能测试</div>
+                <button class="example-btn system" onclick="setMessage('设备状态')">设备状态</button>
+                <button class="example-btn system" onclick="setMessage('帮助')">帮助信息</button>
+                <button class="example-btn system" onclick="setMessage('功能')">功能列表</button>
+                <button class="example-btn system" onclick="setMessage('你好')">基础对话</button>
+            </div>
         </div>
         
         <div class="messages" id="messages">
             <div class="message">
                 <div class="message-time">系统消息</div>
-                <div class="message-content">欢迎使用NexusMind测试客户端！请先连接到服务器。</div>
+                <div class="message-content">欢迎使用NexusMind语音摄像头测试客户端！
+
+🎯 测试功能:
+• 语音录制与识别
+• 摄像头拍照与分析  
+• 智能决策协调
+
+请先连接到服务器开始测试。</div>
             </div>
         </div>
     </div>
@@ -173,9 +246,15 @@
             sendBtn.disabled = !connected;
         }
 
-        function addMessage(type, content, time = new Date()) {
+        function addMessage(type, content, time = new Date(), isSuccess = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message';
+            
+            if (isSuccess === true) {
+                messageDiv.classList.add('success');
+            } else if (isSuccess === false) {
+                messageDiv.classList.add('error');
+            }
             
             const timeDiv = document.createElement('div');
             timeDiv.className = 'message-time';
@@ -197,55 +276,113 @@
                 
                 websocket.onopen = function() {
                     updateStatus(true, '已连接到NexusMind服务器');
-                    addMessage('连接', '成功连接到服务器');
+                    addMessage('连接', '成功连接到服务器', new Date(), true);
                 };
                 
                 websocket.onmessage = function(event) {
                     try {
                         const data = JSON.parse(event.data);
                         let message = '';
+                        let isSuccess = null;
                         
                         switch(data.type) {
                             case 'connection':
                                 message = `连接确认: ${data.message}`;
+                                if (data.features) {
+                                    message += '\n\n可用功能:';
+                                    Object.entries(data.features).forEach(([key, desc]) => {
+                                        message += `\n• ${key}: ${desc}`;
+                                    });
+                                }
+                                isSuccess = true;
                                 break;
+                                
                             case 'task_started':
-                                message = `任务开始: ${data.message} (ID: ${data.task_id})`;
+                                message = `⏳ 任务开始: ${data.message} (ID: ${data.task_id})`;
                                 break;
+                                
                             case 'task_completed':
-                                message = `任务完成: ${data.message}\n`;
-                                if (data.payload && data.payload.reply_message) {
-                                    message += `回复: ${data.payload.reply_message}`;
+                                isSuccess = data.status === 'COMPLETED';
+                                message = `${isSuccess ? '✅' : '❌'} 任务完成: ${data.message}`;
+                                
+                                if (data.payload) {
+                                    const payload = data.payload;
+                                    message += `\n\n📊 结果详情:`;
+                                    message += `\n• 处理类型: ${payload.agent_type || 'unknown'}`;
+                                    message += `\n• 操作: ${payload.action || 'unknown'}`;
+                                    
+                                    if (payload.result) {
+                                        const result = payload.result;
+                                        
+                                        // 处理不同类型的结果
+                                        if (result.reply) {
+                                            message += `\n• 回复: ${result.reply}`;
+                                        }
+                                        
+                                        if (result.audio_agent) {
+                                            const audio = result.audio_agent;
+                                            message += `\n\n🎤 语音Agent状态:`;
+                                            message += `\n• 状态: ${audio.status}`;
+                                            message += `\n• 麦克风: ${audio.microphone_available ? '可用' : '不可用'}`;
+                                        }
+                                        
+                                        if (result.camera_agent) {
+                                            const camera = result.camera_agent;
+                                            message += `\n\n📷 摄像头Agent状态:`;
+                                            message += `\n• 状态: ${camera.status}`;
+                                            message += `\n• 摄像头: ${camera.camera_available ? '可用' : '不可用'}`;
+                                            if (camera.available_cameras && camera.available_cameras.length > 0) {
+                                                message += `\n• 可用设备: ${camera.available_cameras.join(', ')}`;
+                                            }
+                                        }
+                                        
+                                        if (result.text) {
+                                            message += `\n• 识别文本: "${result.text}"`;
+                                        }
+                                        
+                                        if (result.face_count !== undefined) {
+                                            message += `\n• 检测到人脸: ${result.face_count} 个`;
+                                        }
+                                        
+                                        if (result.success === false && result.error) {
+                                            message += `\n• 错误: ${result.error}`;
+                                            isSuccess = false;
+                                        }
+                                    }
                                 }
                                 break;
+                                
                             case 'error':
-                                message = `错误: ${data.message}`;
+                                message = `❌ 错误: ${data.message}`;
+                                isSuccess = false;
                                 break;
+                                
                             case 'pong':
-                                message = `心跳响应: ${data.timestamp}`;
+                                message = `💓 心跳响应: ${data.timestamp}`;
                                 break;
+                                
                             default:
-                                message = `未知消息类型: ${JSON.stringify(data, null, 2)}`;
+                                message = `🔄 未知消息: ${JSON.stringify(data, null, 2)}`;
                         }
                         
-                        addMessage('接收', message);
+                        addMessage('接收', message, new Date(), isSuccess);
                     } catch (e) {
-                        addMessage('接收', `原始消息: ${event.data}`);
+                        addMessage('接收', `原始消息: ${event.data}`, new Date());
                     }
                 };
                 
                 websocket.onclose = function() {
                     updateStatus(false, '与服务器断开连接');
-                    addMessage('系统', '连接已关闭');
+                    addMessage('系统', '连接已关闭', new Date(), false);
                 };
                 
                 websocket.onerror = function(error) {
                     updateStatus(false, '连接错误');
-                    addMessage('错误', `WebSocket错误: ${error}`);
+                    addMessage('错误', `WebSocket错误: ${error}`, new Date(), false);
                 };
                 
             } catch (error) {
-                addMessage('错误', `连接失败: ${error.message}`);
+                addMessage('错误', `连接失败: ${error.message}`, new Date(), false);
             }
         }
 
@@ -270,10 +407,10 @@
             
             try {
                 websocket.send(JSON.stringify(message));
-                addMessage('发送', messageInput.value.trim());
+                addMessage('发送', messageInput.value.trim(), new Date());
                 messageInput.value = '';
             } catch (error) {
-                addMessage('错误', `发送失败: ${error.message}`);
+                addMessage('错误', `发送失败: ${error.message}`, new Date(), false);
             }
         }
 
@@ -282,7 +419,7 @@
             
             const ping = { type: "ping" };
             websocket.send(JSON.stringify(ping));
-            addMessage('发送', 'Ping (心跳检测)');
+            addMessage('发送', 'Ping (心跳检测)', new Date());
         }
 
         function setMessage(text) {
@@ -310,7 +447,7 @@
 
         // 页面加载完成后的初始化
         document.addEventListener('DOMContentLoaded', function() {
-            addMessage('系统', 'WebSocket测试客户端已准备就绪！');
+            addMessage('系统', 'NexusMind语音摄像头测试客户端已准备就绪！\n\n🎯 快速开始:\n1. 点击"连接服务器"\n2. 选择功能测试示例\n3. 查看处理结果', new Date());
         });
     </script>
 </body>

@@ -1,236 +1,235 @@
-# NexusMind - 开放式智能体联邦平台
+# NexusMind - 智能体语音摄像头平台
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
-![LangGraph](https://img.shields.io/badge/LangGraph-latest-orange.svg)
+![OpenCV](https://img.shields.io/badge/OpenCV-latest-red.svg)
 
-## 🎯 项目愿景
+## 🎯 项目介绍
 
-NexusMind 致力于构建一个**开放式的智能体联邦生态**，而非封闭的单一应用。我们的核心理念是创建一个能够与无数专业智能体无缝协作的统一平台，为用户提供前所未有的智能交互体验。
+NexusMind 是一个基于**语音和视觉**的智能体协调平台，提供实时的多模态交互体验。系统通过智能协调器统一管理语音录制、语音识别、图像捕获、图像分析等核心功能。
 
-## 🏗️ 架构设计
+## ✨ 核心功能
 
-### 核心设计原则
+### 🎤 语音智能体
+- **录音功能**: 支持指定时长的高质量录音
+- **语音识别**: 实时语音转文字（支持中英文）
+- **智能识别**: 一键录音并自动识别为文字
+- **设备检测**: 自动检测可用麦克风设备
 
-1. **联邦优先，而非集成** - 新功能以独立智能体微服务形式构建
-2. **异步事件驱动** - 所有交互都是异步的，确保极致用户体验
-3. **标准化通信** - 基于A2A思想的标准化消息协议
-4. **用户体验至上** - 架构复杂性服务于前端简洁性
+### 📷 摄像头智能体  
+- **图像捕获**: 高清拍照功能
+- **连续拍摄**: 支持多张连拍
+- **图像分析**: 自动分析亮度、对比度、色彩等
+- **人脸检测**: 基于OpenCV的实时人脸识别
+- **设备管理**: 多摄像头设备支持
 
-### 系统架构
-
-```
-┌─────────────────────────────┐
-│  移动应用 (React Native)      │
-│  - UI/VUI/Camera           │
-│  - 状态/结果实时渲染        │
-└─────────────┬───────────────┘
-              │ WebSocket
-┌─────────────┴───────────────┐
-│   核心服务网关 (FastAPI)      │
-└─────────────┬───────────────┘
-              │
-┌─────────────┴───────────────┐
-│ 核心协调Agent (Orchestrator) │
-│ - LangGraph驱动的决策流     │
-│ - 异步任务追踪 (Redis)      │
-│ - 记忆模块 (ChromaDB)       │
-└─────────────┬───────────────┘
-              │ A2A Protocol
-┌─────────────┴───────────────┐
-│ 智能体通信总线 (RabbitMQ)    │
-└─────────────┬───────────────┘
-        ┌─────┼─────┐
-   ┌────┴──┐ ┌┴────┐ ┌──┴────┐
-   │视觉Agent│ │搜索Agent│ │天气Agent│
-   │(微服务) │ │(微服务)│ │(微服务) │
-   └───────┘ └─────┘ └───────┘
-```
-
-## 🛠️ 技术栈
-
-| 组件 | 技术选型 | 说明 |
-|------|---------|------|
-| **核心编排** | LangGraph | 强大的决策流和状态管理 |
-| **API服务** | FastAPI | 高性能异步Web框架 |
-| **LLM引擎** | OpenAI/DeepSeek | 语言理解和推理 |
-| **消息队列** | RabbitMQ | 智能体间异步通信 |
-| **内存存储** | ChromaDB | 长期记忆和向量检索 |
-| **状态追踪** | Redis | 任务状态实时管理 |
-| **前端** | React Native | 跨平台移动应用 |
+### 🧠 智能协调器
+- **意图理解**: 智能分析用户指令
+- **任务调度**: 自动选择合适的Agent执行任务
+- **实时反馈**: WebSocket实时状态更新
+- **错误处理**: 优雅的错误处理和恢复
 
 ## 🚀 快速开始
 
-### 1. 环境准备
+### 一键启动（推荐）
 
 ```bash
 # 克隆项目
 git clone https://github.com/your-repo/NexusMind.git
 cd NexusMind
 
-# 安装Python依赖
+# 运行快速启动脚本
+python quick_start.py
+```
+
+快速启动脚本会自动：
+- ✅ 检查Python环境
+- ✅ 安装所有依赖
+- ✅ 配置环境变量
+- ✅ 运行系统测试
+- ✅ 启动服务器并打开测试页面
+
+### 手动安装
+
+```bash
+# 1. 安装依赖
 pip install -r requirements.txt
 
-# 复制环境配置
+# 2. 配置环境
 cp .env.example .env
-```
 
-### 2. 配置环境变量
-
-编辑 `.env` 文件，设置必要的配置：
-
-```bash
-# 设置LLM API密钥（必需）
-LLM_API_KEY="your-openai-api-key"
-
-# 其他配置保持默认即可
-```
-
-### 3. 启动基础设施服务
-
-```bash
-# 启动 RabbitMQ、Redis、ChromaDB
-cd infrastructure
-docker-compose up -d
-```
-
-### 4. 运行系统测试
-
-```bash
-# 测试核心功能
+# 3. 测试系统
 python test_system.py
-```
 
-### 5. 启动服务器
-
-```bash
-# 启动NexusMind核心服务
+# 4. 启动服务器
 python run_server.py
 ```
 
-服务启动后，可以访问：
-- API文档: http://localhost:8080/docs
-- 健康检查: http://localhost:8080/health
-- WebSocket测试: ws://localhost:8080/ws/test-client
+## 🎯 功能演示
 
-## 📋 当前功能
+### 语音功能测试
+```bash
+# 通过WebSocket测试客户端或API发送：
 
-### ✅ 已实现（第一周目标）
+"录音5秒"           # 录制5秒音频
+"录音并识别"        # 录音并转换为文字
+"语音转文字"        # 语音识别功能
+```
 
-- [x] 核心协调器 (LangGraph驱动)
-- [x] 本地计算器工具
-- [x] 本地文本解析工具
-- [x] FastAPI Web服务
-- [x] WebSocket实时通信
-- [x] 智能决策流程
-- [x] 异步任务处理
+### 摄像头功能测试
+```bash
+"拍照"             # 单张拍照
+"拍照并分析"        # 拍照并分析图像质量
+"拍3张照片"         # 连续拍摄3张
+"人脸检测"          # 拍照并检测人脸
+```
 
-### 🔄 开发中（第二周目标）
+### 系统查询
+```bash
+"设备状态"          # 查看语音和摄像头设备状态
+"帮助"             # 获取功能说明
+"功能"             # 查看所有可用功能
+```
 
-- [ ] RabbitMQ消息总线集成
-- [ ] A2A协议实现
-- [ ] 天气智能体微服务
-- [ ] 外部智能体通信
+## 🌐 测试方式
 
-### 📅 计划中（第三、四周）
+### 1. WebSocket测试客户端
+打开 `test_client.html` 进行交互式测试：
+- 🔌 连接到WebSocket服务器
+- 💬 发送语音/摄像头指令
+- 📊 实时查看处理结果
 
-- [ ] 搜索智能体微服务
-- [ ] 视觉识别智能体
-- [ ] ChromaDB记忆系统
-- [ ] React Native移动应用
-- [ ] 智能体注册与发现
-
-## 🧪 测试功能
-
-### API测试
-
+### 2. API接口测试
 ```bash
 # 健康检查
 curl http://localhost:8080/health
 
-# 测试处理请求
-curl -X POST "http://localhost:8080/api/v1/process" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "计算 2 + 3 * 4"}'
+# 系统状态
+curl http://localhost:8080/api/v1/status
 
-# 测试本地工具
-curl -X POST "http://localhost:8080/api/v1/tools/test"
+# 录音接口
+curl -X POST http://localhost:8080/api/v1/audio/record
+
+# 拍照接口  
+curl -X POST http://localhost:8080/api/v1/camera/capture
 ```
 
-### WebSocket测试
-
-使用WebSocket客户端连接到 `ws://localhost:8080/ws/test-client`
-
-发送消息格式：
-```json
-{
-  "type": "user_request",
-  "payload": {
-    "message": "你好，请帮我计算 10 + 20"
-  }
-}
+### 3. 系统测试脚本
+```bash
+python test_system.py
 ```
 
-## 🎯 使用场景
-
-1. **数学计算**: "请计算 2 + 3 * 4"
-2. **文本分析**: "请分析这段文本的情感和关键词"
-3. **混合任务**: "分析文本'计算5+7'并执行其中的数学计算"
-
-## 🔧 开发指南
-
-### 添加新的本地工具
-
-1. 在 `backend/core/tools.py` 中创建新工具类
-2. 继承 `BaseTool` 并实现 `_run` 方法
-3. 在 `NexusMindOrchestrator._initialize_tools()` 中注册
-
-### 扩展决策逻辑
-
-编辑 `backend/core/orchestrator.py` 中的LangGraph节点：
-- `_analyze_request`: 请求分析
-- `_plan_execution`: 执行规划
-- `_execute_local_tools`: 工具执行
-- `_format_response`: 响应格式化
-
-## 📚 项目结构
+## �️ 技术架构
 
 ```
-NexusMind/
-├── backend/                 # 后端核心代码
-│   ├── api/                # FastAPI路由
-│   ├── core/               # 核心逻辑
-│   ├── models/             # 数据模型
-│   └── utils/              # 工具函数
-├── agents/                 # 智能体微服务
-├── frontend/               # React Native应用
-├── infrastructure/         # Docker配置
-├── docs/                   # 项目文档
-├── requirements.txt        # Python依赖
-├── run_server.py          # 服务启动脚本
-└── test_system.py         # 系统测试脚本
+用户界面 (WebSocket/HTTP)
+        ↓
+   智能协调器 (SimpleOrchestrator)
+        ↓
+    意图分析 & 任务调度
+        ↓
+  ┌─────────┴─────────┐
+  ↓                   ↓
+🎤 语音Agent          📷 摄像头Agent
+• 录音录制            • 图像捕获  
+• 语音识别            • 图像分析
+• 设备管理            • 人脸检测
 ```
 
-## 🤝 贡献指南
+## 📚 核心组件
 
-1. Fork 项目
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+| 组件 | 功能 | 技术栈 |
+|------|------|--------|
+| **智能协调器** | 意图分析、任务调度 | Python异步编程 |
+| **语音Agent** | 录音、语音识别 | SpeechRecognition, PyAudio |
+| **摄像头Agent** | 拍照、图像分析 | OpenCV, PIL |
+| **API服务** | REST & WebSocket | FastAPI, Uvicorn |
+| **数据模型** | 类型安全 | Pydantic |
+
+## 🔧 系统要求
+
+- **Python**: 3.8+
+- **操作系统**: Windows/Linux/macOS
+- **硬件**: 
+  - 麦克风（语音功能）
+  - 摄像头（图像功能）
+- **权限**: 摄像头和麦克风访问权限
+
+## 📊 当前状态
+
+### ✅ 已完成功能
+- [x] 语音录制与识别
+- [x] 摄像头拍照与分析
+- [x] 智能意图理解
+- [x] 实时WebSocket通信
+- [x] REST API接口
+- [x] 人脸检测
+- [x] 设备状态管理
+- [x] 错误处理与恢复
+
+### 🔄 开发中功能
+- [ ] 语音合成(TTS)
+- [ ] 高级图像识别
+- [ ] 多语言支持优化
+- [ ] 移动端应用
+
+### 📅 未来计划  
+- [ ] RabbitMQ消息总线集成
+- [ ] A2A协议外部智能体接入
+- [ ] 长期记忆系统(ChromaDB)
+- [ ] React Native移动应用
+
+## 🎮 使用场景
+
+1. **语音助手**: "录音5秒并识别内容"
+2. **图像分析**: "拍照分析图像质量和色彩"
+3. **人脸识别**: "拍照检测画面中的人脸"
+4. **设备管理**: "查看摄像头和麦克风状态"
+5. **多模态交互**: 语音指令 + 视觉反馈
+
+## 🔍 故障排除
+
+### 常见问题
+
+**Q: 麦克风不可用？**
+A: 检查系统麦克风权限，确保设备未被其他应用占用
+
+**Q: 摄像头无法使用？**  
+A: 检查摄像头连接，确认系统摄像头权限
+
+**Q: 语音识别失败？**
+A: 确保网络连接正常（使用Google Speech Recognition）
+
+**Q: 依赖安装失败？**
+A: 使用国内镜像：`pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/`
+
+## 🤝 开发指南
+
+### 添加新功能
+1. 在相应Agent中实现核心逻辑
+2. 在协调器中添加意图识别
+3. 更新API接口和文档
+4. 添加测试用例
+
+### 扩展Agent能力
+```python
+# 在audio_agent.py或camera_agent.py中添加新方法
+async def new_feature(self, params):
+    # 实现新功能
+    return result
+```
 
 ## 📄 许可证
 
-本项目基于 MIT 许可证开源 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目基于 MIT 许可证开源。
 
 ## 🔗 相关链接
 
-- [架构设计文档](docs/architect.md)
-- [API文档](http://localhost:8080/docs)
-- [LangGraph官方文档](https://langchain-ai.github.io/langgraph/)
-- [FastAPI官方文档](https://fastapi.tiangolo.com/)
+- [API文档](http://localhost:8080/docs) (启动服务器后访问)
+- [测试客户端](test_client.html)
+- [架构设计](docs/architect.md)
 
 ---
 
-**🌟 如果这个项目对你有帮助，请给我们一个Star！**
+**🌟 体验前沿的多模态智能体交互！语音+视觉，让AI真正理解你的世界。**
