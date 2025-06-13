@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Message queue for agent communication
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: nexusmind-rabbitmq
+    ports:
+      - "5672:5672"    # AMQP port
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: nexusmind
+      RABBITMQ_DEFAULT_PASS: nexusmind123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - nexusmind-network
+
+  # Redis for task state tracking
+  redis:
+    image: redis:7.2-alpine
+    container_name: nexusmind-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - nexusmind-network
+
+  # ChromaDB for long-term memory
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: nexusmind-chromadb
+    ports:
+      - "8000:8000"
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    volumes:
+      - chromadb_data:/chroma/chroma
+    networks:
+      - nexusmind-network
+
+volumes:
+  rabbitmq_data:
+  redis_data:
+  chromadb_data:
+
+networks:
+  nexusmind-network:
+    driver: bridge
