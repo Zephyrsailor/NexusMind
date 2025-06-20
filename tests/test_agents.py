@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from backend.core.agents.base_agent import BaseAgent
-from backend.core.agents.voice_agent import VoiceInteractionAgent
-from backend.core.agents.vision_agent import VisionCaptureAgent
+from backend.core.agents.voice_agent import VoiceAgent
+from backend.core.agents.vision_agent import VisionAgent
 from backend.models.schemas import A2AMessage, A2AResponse
 
 
@@ -52,13 +52,13 @@ class TestBaseAgent:
         assert card["protocol"] == "a2a/1.0"
 
 
-class TestVoiceInteractionAgent:
+class TestVoiceAgent:
     """测试语音交互智能体"""
     
     @pytest.mark.asyncio
     async def test_voice_agent_creation(self):
         """测试语音智能体创建"""
-        agent = VoiceInteractionAgent()
+        agent = VoiceAgent()
         
         assert agent.agent_id == "voice_interaction_agent"
         assert "speech_to_text" in agent.get_capabilities()
@@ -76,7 +76,7 @@ class TestVoiceInteractionAgent:
     @pytest.mark.asyncio
     async def test_speech_to_text_request(self):
         """测试语音转文字请求"""
-        agent = VoiceInteractionAgent()
+        agent = VoiceAgent()
         
         # 模拟context manager
         agent.share_context = AsyncMock()
@@ -117,7 +117,7 @@ class TestVoiceInteractionAgent:
     @pytest.mark.asyncio
     async def test_meeting_management(self):
         """测试会议管理功能"""
-        agent = VoiceInteractionAgent()
+        agent = VoiceAgent()
         agent.share_context = AsyncMock()
         agent.log_activity = AsyncMock()
         
@@ -163,13 +163,13 @@ class TestVoiceInteractionAgent:
         assert session_id not in agent.meeting_sessions
 
 
-class TestVisionCaptureAgent:
+class TestVisionAgent:
     """测试视觉捕获智能体"""
     
     @pytest.mark.asyncio
     async def test_vision_agent_creation(self):
         """测试视觉智能体创建"""
-        agent = VisionCaptureAgent()
+        agent = VisionAgent()
         
         assert agent.agent_id == "vision_capture_agent"
         assert "object_detection" in agent.get_capabilities()
@@ -188,7 +188,7 @@ class TestVisionCaptureAgent:
     @pytest.mark.asyncio
     async def test_face_recognition(self):
         """测试人脸识别"""
-        agent = VisionCaptureAgent()
+        agent = VisionAgent()
         agent.share_context = AsyncMock()
         agent.log_activity = AsyncMock()
         
@@ -237,7 +237,7 @@ class TestVisionCaptureAgent:
     @pytest.mark.asyncio
     async def test_ocr_processing(self):
         """测试OCR处理"""
-        agent = VisionCaptureAgent()
+        agent = VisionAgent()
         agent.share_context = AsyncMock()
         agent.log_activity = AsyncMock()
         
@@ -277,7 +277,7 @@ class TestVisionCaptureAgent:
     @pytest.mark.asyncio
     async def test_scene_analysis(self):
         """测试场景分析"""
-        agent = VisionCaptureAgent()
+        agent = VisionAgent()
         agent.share_context = AsyncMock()
         agent.log_activity = AsyncMock()
         
