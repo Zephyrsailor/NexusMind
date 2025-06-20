@@ -1,6 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import json
 import asyncio
 import uuid
@@ -81,8 +80,8 @@ async def shutdown_event():
 async def root():
     """根路径"""
     return {
-        "service": settings.app_name,
-        "version": settings.app_version,
+        "service": "NexusMind智能体平台",
+        "version": "1.0.0", 
         "status": "running",
         "docs": "/docs"
     }
