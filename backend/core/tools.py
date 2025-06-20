@@ -1,168 +1,265 @@
-import re
+"""
+核心工具集
+包含orchestrator用于调用A2A智能体的工具
+"""
 import json
-import math
-from typing import Dict, Any, Union
+import asyncio
+import base64
+import re
+from typing import Dict, Any, Optional, List, Tuple
 from langchain.tools import BaseTool
 from pydantic import BaseModel, Field
+import logging
+from ..models.schemas import A2AMessage, A2AResponse
+from ..utils.a2a_client import A2AClient
+
+logger = logging.getLogger(__name__)
 
 
-class CalculatorInput(BaseModel):
-    """计算器工具输入模型"""
-    expression: str = Field(..., description="要计算的数学表达式")
+class AgentCallInput(BaseModel):
+    """智能体调用输入模型"""
+    agent_id: str = Field(..., description="目标智能体ID")
+    action: str = Field(..., description="要执行的动作")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="传递给智能体的参数")
+    task_id: Optional[str] = Field(None, description="任务ID")
 
 
-class LocalCalculatorTool(BaseTool):
-    """本地计算器工具"""
-    name = "local_calculator"
-    description = "执行基本数学计算，支持四则运算、幂运算、三角函数等"
-    args_schema = CalculatorInput
+class A2AAgentTool(BaseTool):
+    """A2A智能体通信工具"""
+    name: str = "call_agent"
+    description: str = """调用专业智能体执行特定任务。
+    可用的智能体:
+    - voice_interaction_agent: 语音转文字、会议记录、语音命令
+    - vision_capture_agent: 图像识别、OCR、人脸识别、场景分析
+    """
+    args_schema: type[BaseModel] = AgentCallInput
+    a2a_client: Optional[A2AClient] = Field(default=None, exclude=True)
     
-    def _run(self, expression: str) -> str:
-        """执行数学计算"""
+    def __init__(self, a2a_client: A2AClient, **data):
+        super().__init__(**data)
+        self.a2a_client = a2a_client
+        
+    def _run(self, agent_id: str, action: str, payload: Dict[str, Any], task_id: Optional[str] = None) -> str:
+        """同步运行（实际调用异步方法）"""
+        # LangChain要求同步方法，这里使用asyncio.run
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            # 清理表达式，只保留安全的数学操作
-            safe_expression = self._sanitize_expression(expression)
+            result = loop.run_until_complete(
+                self._arun(agent_id, action, payload, task_id)
+            )
+            return result
+        finally:
+            loop.close()
             
-            # 支持的数学函数
-            allowed_names = {
-                "abs": abs,
-                "min": min,
-                "max": max,
-                "round": round,
-                "pow": pow,
-                "sqrt": math.sqrt,
-                "sin": math.sin,
-                "cos": math.cos,
-                "tan": math.tan,
-                "log": math.log,
-                "log10": math.log10,
-                "exp": math.exp,
-                "pi": math.pi,
-                "e": math.e
-            }
+    async def _arun(self, agent_id: str, action: str, payload: Dict[str, Any], task_id: Optional[str] = None) -> str:
+        """异步调用智能体"""
+        try:
+            # 构建A2A消息
+            message = A2AMessage(
+                sender="orchestrator",
+                target=agent_id,
+                action=action,
+                payload={
+                    **payload,
+                    "task_id": task_id or "default"
+                }
+            )
             
-            # 安全执行计算
-            result = eval(safe_expression, {"__builtins__": {}}, allowed_names)
+            logger.info(f"Calling agent {agent_id} with action {action}")
             
-            return f"计算结果: {result}"
+            # 发送消息并等待响应
+            response = await self.a2a_client.send_message(message, timeout=30)
+            
+            if response and response.success:
+                result = response.result
+                return f"智能体{agent_id}执行成功: {json.dumps(result, ensure_ascii=False, indent=2)}"
+            else:
+                error = response.error if response else "超时无响应"
+                return f"智能体{agent_id}执行失败: {error}"
+                
+        except Exception as e:
+            logger.error(f"Error calling agent {agent_id}: {e}")
+            return f"调用智能体出错: {str(e)}"
+
+
+class AgentDiscoveryInput(BaseModel):
+    """智能体发现输入模型"""
+    capability: Optional[str] = Field(None, description="所需的能力（可选）")
+
+
+class AgentDiscoveryTool(BaseTool):
+    """智能体发现工具"""
+    name: str = "discover_agents"
+    description: str = "发现可用的智能体及其能力"
+    args_schema: type[BaseModel] = AgentDiscoveryInput
+    a2a_client: Optional[A2AClient] = Field(default=None, exclude=True)
+    
+    def __init__(self, a2a_client: A2AClient, **data):
+        super().__init__(**data)
+        self.a2a_client = a2a_client
+        
+    def _run(self, capability: Optional[str] = None) -> str:
+        """同步运行"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                self._arun(capability)
+            )
+            return result
+        finally:
+            loop.close()
+            
+    async def _arun(self, capability: Optional[str] = None) -> str:
+        """异步发现智能体"""
+        try:
+            # 获取所有注册的智能体
+            agents = await self.a2a_client.discover_agents()
+            
+            if capability:
+                # 过滤具有特定能力的智能体
+                filtered_agents = {}
+                for agent_id, agent_info in agents.items():
+                    capabilities = agent_info.get("capabilities", [])
+                    if capability in capabilities:
+                        filtered_agents[agent_id] = agent_info
+                agents = filtered_agents
+                
+            # 格式化输出
+            if not agents:
+                return "没有找到可用的智能体"
+                
+            result = "可用的智能体:\n"
+            for agent_id, info in agents.items():
+                result += f"\n- {info.get('name', agent_id)} ({agent_id})\n"
+                result += f"  描述: {info.get('description', '无描述')}\n"
+                result += f"  能力: {', '.join(info.get('capabilities', []))}\n"
+                
+            return result
             
         except Exception as e:
-            return f"计算错误: {str(e)}"
+            logger.error(f"Error discovering agents: {e}")
+            return f"发现智能体出错: {str(e)}"
+
+
+class AgentStatusInput(BaseModel):
+    """智能体状态查询输入模型"""
+    agent_id: Optional[str] = Field(None, description="智能体ID（可选，不提供则返回所有）")
+
+
+class AgentStatusTool(BaseTool):
+    """智能体状态查询工具"""
+    name: str = "check_agent_status"
+    description: str = "查询智能体的运行状态"
+    args_schema: type[BaseModel] = AgentStatusInput
+    a2a_client: Optional[A2AClient] = Field(default=None, exclude=True)
     
-    def _sanitize_expression(self, expression: str) -> str:
-        """清理和验证数学表达式"""
-        # 移除空格
-        expression = expression.replace(" ", "")
+    def __init__(self, a2a_client: A2AClient, **data):
+        super().__init__(**data)
+        self.a2a_client = a2a_client
         
-        # 只允许数字、运算符和函数名
-        allowed_pattern = r'^[0-9+\-*/().a-z_,]+$'
-        if not re.match(allowed_pattern, expression.lower()):
-            raise ValueError("表达式包含不允许的字符")
-        
-        return expression
-
-
-class TextParserInput(BaseModel):
-    """文本解析工具输入模型"""
-    text: str = Field(..., description="要解析的文本")
-    parse_type: str = Field(default="general", description="解析类型: general, entities, sentiment, keywords")
-
-
-class LocalTextParserTool(BaseTool):
-    """本地文本解析工具"""
-    name = "local_text_parser"
-    description = "解析文本内容，提取实体、情感、关键词等信息"
-    args_schema = TextParserInput
-    
-    def _run(self, text: str, parse_type: str = "general") -> str:
-        """执行文本解析"""
+    def _run(self, agent_id: Optional[str] = None) -> str:
+        """同步运行"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            result = {}
+            result = loop.run_until_complete(
+                self._arun(agent_id)
+            )
+            return result
+        finally:
+            loop.close()
             
-            if parse_type == "general" or parse_type == "entities":
-                # 基本实体提取
-                entities = self._extract_entities(text)
-                result["entities"] = entities
-            
-            if parse_type == "general" or parse_type == "sentiment":
-                # 简单情感分析
-                sentiment = self._analyze_sentiment(text)
-                result["sentiment"] = sentiment
-            
-            if parse_type == "general" or parse_type == "keywords":
-                # 关键词提取
-                keywords = self._extract_keywords(text)
-                result["keywords"] = keywords
-            
-            if parse_type == "general":
-                # 基本统计信息
-                stats = self._get_text_stats(text)
-                result["statistics"] = stats
-            
-            return f"文本解析结果: {json.dumps(result, ensure_ascii=False, indent=2)}"
-            
+    async def _arun(self, agent_id: Optional[str] = None) -> str:
+        """异步查询状态"""
+        try:
+            if agent_id:
+                # 查询特定智能体状态
+                status = await self.a2a_client.get_agent_status(agent_id)
+                return f"{agent_id}状态: {json.dumps(status, ensure_ascii=False, indent=2)}"
+            else:
+                # 查询所有智能体状态
+                statuses = await self.a2a_client.get_all_agent_statuses()
+                
+                result = "所有智能体状态:\n"
+                for status in statuses:
+                    agent_id = status.get("agent_id", "unknown")
+                    state = status.get("status", "unknown")
+                    last_seen = status.get("last_seen", "never")
+                    result += f"\n- {agent_id}: {state} (最后活跃: {last_seen})\n"
+                    
+                return result
+                
         except Exception as e:
-            return f"解析错误: {str(e)}"
+            logger.error(f"Error checking agent status: {e}")
+            return f"查询状态出错: {str(e)}"
+
+
+def safe_base64_decode(data: str) -> Tuple[bytes, bool]:
+    """
+    安全地解码 base64 数据，处理各种格式和编码问题
     
-    def _extract_entities(self, text: str) -> Dict[str, Any]:
-        """提取基本实体"""
-        entities = {
-            "emails": re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text),
-            "urls": re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text),
-            "phones": re.findall(r'\b\d{3}-\d{3}-\d{4}\b|\b\d{10,11}\b', text),
-            "numbers": re.findall(r'\b\d+\.?\d*\b', text)
-        }
-        return entities
+    Args:
+        data: 要解码的 base64 字符串
+        
+    Returns:
+        Tuple[bytes, bool]: (解码后的字节数据, 是否成功)
+    """
+    try:
+        # 移除可能的 data URL 前缀
+        if data.startswith('data:'):
+            # 查找 base64 数据的开始位置
+            comma_index = data.find(',')
+            if comma_index != -1:
+                data = data[comma_index + 1:]
+        
+        # 移除所有空白字符
+        data = ''.join(data.split())
+        
+        # 只保留 base64 有效字符
+        valid_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+        cleaned_data = ''.join(c for c in data if c in valid_chars)
+        
+        # 确保长度是4的倍数（base64 要求）
+        while len(cleaned_data) % 4 != 0:
+            cleaned_data += '='
+            
+        # 解码
+        decoded_bytes = base64.b64decode(cleaned_data)
+        return decoded_bytes, True
+        
+    except Exception as e:
+        logger.error(f"Base64 解码失败: {e}")
+        return b'', False
+
+
+def clean_base64_data(data: str) -> str:
+    """
+    清理 base64 数据，移除前缀和非法字符
     
-    def _analyze_sentiment(self, text: str) -> Dict[str, Any]:
-        """简单情感分析"""
-        positive_words = ["好", "棒", "优秀", "喜欢", "开心", "满意", "great", "good", "excellent", "love", "happy"]
-        negative_words = ["差", "坏", "糟糕", "讨厌", "不满", "生气", "bad", "terrible", "hate", "angry", "sad"]
+    Args:
+        data: 原始 base64 字符串
         
-        text_lower = text.lower()
-        positive_count = sum(1 for word in positive_words if word in text_lower)
-        negative_count = sum(1 for word in negative_words if word in text_lower)
-        
-        if positive_count > negative_count:
-            sentiment = "positive"
-        elif negative_count > positive_count:
-            sentiment = "negative"
-        else:
-            sentiment = "neutral"
-        
-        return {
-            "sentiment": sentiment,
-            "positive_score": positive_count,
-            "negative_score": negative_count
-        }
+    Returns:
+        str: 清理后的 base64 字符串
+    """
+    # 移除可能的 data URL 前缀
+    if data.startswith('data:'):
+        # 查找 base64 数据的开始位置
+        comma_index = data.find(',')
+        if comma_index != -1:
+            data = data[comma_index + 1:]
     
-    def _extract_keywords(self, text: str) -> list:
-        """提取关键词"""
-        # 简单的关键词提取：去除常见停用词后的高频词汇
-        stop_words = {
-            "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这",
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should"
-        }
-        
-        # 简单分词（按空格和标点分割）
-        words = re.findall(r'\b\w+\b', text.lower())
-        
-        # 过滤停用词和短词
-        keywords = [word for word in words if len(word) > 2 and word not in stop_words]
-        
-        # 计算词频并返回前10个
-        word_freq = {}
-        for word in keywords:
-            word_freq[word] = word_freq.get(word, 0) + 1
-        
-        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
-        return [word for word, freq in sorted_words[:10]]
+    # 移除所有空白字符
+    data = ''.join(data.split())
     
-    def _get_text_stats(self, text: str) -> Dict[str, Any]:
-        """获取文本统计信息"""
-        return {
-            "character_count": len(text),
-            "word_count": len(text.split()),
-            "sentence_count": len(re.findall(r'[.!?]+', text)),
-            "paragraph_count": len([p for p in text.split('\n') if p.strip()])
-        }
+    # 只保留 base64 有效字符
+    valid_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=')
+    cleaned_data = ''.join(c for c in data if c in valid_chars)
+    
+    # 确保长度是4的倍数（base64 要求）
+    while len(cleaned_data) % 4 != 0:
+        cleaned_data += '='
+        
+    return cleaned_data

@@ -1,15 +1,18 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import json
 import asyncio
 import uuid
 from typing import Dict
 import logging
+from datetime import datetime
+from pydantic import BaseModel
 
 from ..core.config import settings
 from ..core.orchestrator import NexusMindOrchestrator
+from ..core.context_manager import ContextManager
 from ..models.schemas import UserRequest, TaskResponse, TaskStatus
+from ..utils.a2a_client import A2AClient
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="NexusMind智能体联邦平台 - 核心协调服务",
+    description="NexusMind 多智能体协作系统",
     debug=settings.debug
 )
 
@@ -33,69 +36,163 @@ app.add_middleware(
 )
 
 # 全局实例
-orchestrator = NexusMindOrchestrator()
+orchestrator = None
 active_connections: Dict[str, WebSocket] = {}
+context_manager = None
 
 
 @app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
+    global orchestrator, context_manager
+    
     logger.info(f"启动 {settings.app_name} v{settings.app_version}")
-    logger.info("核心协调器已初始化")
+    
+    # 初始化 Orchestrator
+    orchestrator = NexusMindOrchestrator()
+    await orchestrator.initialize()
+    
+    # 获取上下文管理器
+    context_manager = orchestrator.context_manager
+    
+    logger.info("NexusMind 系统已启动")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭事件"""
     logger.info("正在关闭应用...")
+    
     # 关闭所有WebSocket连接
     for connection in active_connections.values():
         await connection.close()
+    
+    # 清理orchestrator资源
+    if orchestrator:
+        await orchestrator.cleanup()
+    
+    logger.info("应用已安全关闭")
 
+
+# ==================== 核心 API ====================
 
 @app.get("/")
 async def root():
-    """根路径健康检查"""
+    """根路径"""
     return {
-        "service": settings.app_name,
-        "version": settings.app_version,
+        "service": "NexusMind智能体平台",
+        "version": "1.0.0", 
         "status": "running",
-        "message": "NexusMind核心协调服务运行正常"
+        "docs": "/docs"
     }
 
 
 @app.get("/health")
 async def health_check():
-    """健康检查接口"""
+    """健康检查"""
     return {
         "status": "healthy",
-        "service": settings.app_name,
-        "version": settings.app_version,
-        "orchestrator": "ready"
+        "timestamp": datetime.now().isoformat()
     }
 
 
-@app.post("/api/v1/process", response_model=TaskResponse)
-async def process_request(request: UserRequest):
-    """同步处理用户请求"""
+class ChatRequest(BaseModel):
+    """聊天请求模型"""
+    message: str
+    audio_data: str = None
+    image_data: str = None
+    metadata: dict = {}
+
+
+@app.post("/api/v1/chat", response_model=TaskResponse)
+async def chat(request: ChatRequest):
+    """
+    主要聊天接口 - 所有请求的统一入口
+    
+    请求格式:
+    {
+        "message": "用户消息",
+        "audio_data": "base64音频数据（可选）",
+        "image_data": "base64图像数据（可选）",
+        "metadata": {}
+    }
+    
+    响应格式:
+    {
+        "task_id": "任务ID",
+        "status": "processing|completed|failed",
+        "message": "状态说明",
+        "payload": {
+            "reply_message": "AI回复",
+            "details": {}
+        }
+    }
+    """
     try:
-        logger.info(f"收到用户请求: {request.message}")
+        if not orchestrator:
+            raise HTTPException(status_code=503, detail="系统正在初始化")
         
-        # 处理请求
-        response = await orchestrator.process_request(request)
+        # 构建统一的用户请求
+        user_request = UserRequest(
+            message=request.message,
+            audio_data=request.audio_data,
+            image_data=request.image_data,
+            metadata=request.metadata
+        )
         
-        logger.info(f"请求处理完成，任务ID: {response.task_id}")
+        # 通过 Orchestrator 处理（LLM Function Calling）
+        response = await orchestrator.process_request(user_request)
+        
         return response
         
     except Exception as e:
-        logger.error(f"处理请求时发生错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"内部服务器错误: {str(e)}")
+        logger.error(f"处理请求时发生错误: {str(e)}", exc_info=True)
+        return TaskResponse(
+            task_id=str(uuid.uuid4()),
+            status=TaskStatus.FAILED,
+            message="处理失败",
+            payload={
+                "reply_message": f"抱歉，处理您的请求时出现错误：{str(e)}",
+                "error": str(e)
+            }
+        )
 
 
-@app.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    """WebSocket连接端点，支持实时通信"""
+@app.get("/api/v1/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """获取任务状态"""
+    if not context_manager:
+        raise HTTPException(status_code=503, detail="系统未初始化")
+    
+    try:
+        # 获取任务上下文
+        task_context = await context_manager.get_task_context(task_id)
+        if not task_context:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        
+        # 获取任务摘要
+        summary = await context_manager.get_task_summary(task_id)
+        
+        return {
+            "task_id": task_id,
+            "summary": summary,
+            "context": task_context
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取任务状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== WebSocket ====================
+
+@app.websocket("/ws/chat")
+async def websocket_chat(websocket: WebSocket):
+    """WebSocket 聊天接口"""
     await websocket.accept()
+    client_id = f"ws_{uuid.uuid4().hex[:8]}"
     active_connections[client_id] = websocket
     
     logger.info(f"WebSocket客户端 {client_id} 已连接")
@@ -103,126 +200,107 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     try:
         # 发送欢迎消息
         await websocket.send_json({
-            "type": "connection",
-            "message": f"欢迎连接到NexusMind！客户端ID: {client_id}",
-            "timestamp": str(asyncio.get_event_loop().time())
+            "type": "connected",
+            "client_id": client_id,
+            "message": "连接成功"
         })
         
         while True:
-            # 接收客户端消息
+            # 接收消息
             data = await websocket.receive_text()
             message_data = json.loads(data)
             
-            logger.info(f"收到WebSocket消息: {message_data}")
+            # 构建请求
+            chat_request = ChatRequest(**message_data)
             
-            # 处理不同类型的消息
-            if message_data.get("type") == "user_request":
-                await handle_user_request_ws(websocket, message_data, client_id)
-            elif message_data.get("type") == "ping":
-                await websocket.send_json({"type": "pong", "timestamp": str(asyncio.get_event_loop().time())})
-            else:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"未知消息类型: {message_data.get('type')}"
-                })
-                
+            # 发送处理中状态
+            task_id = str(uuid.uuid4())
+            await websocket.send_json({
+                "type": "processing",
+                "task_id": task_id
+            })
+            
+            # 处理请求
+            user_request = UserRequest(
+                message=chat_request.message,
+                audio_data=chat_request.audio_data,
+                image_data=chat_request.image_data,
+                metadata=chat_request.metadata
+            )
+            
+            response = await orchestrator.process_request(user_request)
+            
+            # 发送结果
+            await websocket.send_json({
+                "type": "result",
+                "task_id": task_id,
+                "status": response.status,
+                "reply": response.payload.get("reply_message", ""),
+                "details": response.payload
+            })
+            
     except WebSocketDisconnect:
-        logger.info(f"WebSocket客户端 {client_id} 已断开连接")
-        if client_id in active_connections:
-            del active_connections[client_id]
+        logger.info(f"WebSocket客户端 {client_id} 已断开")
     except Exception as e:
-        logger.error(f"WebSocket错误: {str(e)}")
-        await websocket.close()
-        if client_id in active_connections:
-            del active_connections[client_id]
-
-
-async def handle_user_request_ws(websocket: WebSocket, message_data: dict, client_id: str):
-    """处理WebSocket用户请求"""
-    try:
-        # 解析用户请求
-        user_request = UserRequest(**message_data.get("payload", {}))
-        
-        # 立即发送处理开始通知
-        task_id = str(uuid.uuid4())
-        await websocket.send_json({
-            "type": "task_started",
-            "task_id": task_id,
-            "message": "正在处理您的请求...",
-            "status": TaskStatus.PROCESSING
-        })
-        
-        # 异步处理请求
-        response = await orchestrator.process_request(user_request)
-        response.task_id = task_id  # 使用预生成的任务ID
-        
-        # 发送最终结果
-        await websocket.send_json({
-            "type": "task_completed",
-            "task_id": response.task_id,
-            "status": response.status,
-            "message": response.message,
-            "payload": response.payload
-        })
-        
-    except Exception as e:
-        logger.error(f"处理WebSocket请求时发生错误: {str(e)}")
+        logger.error(f"WebSocket错误: {e}")
         await websocket.send_json({
             "type": "error",
-            "message": f"处理请求时发生错误: {str(e)}"
+            "message": str(e)
         })
+    finally:
+        if client_id in active_connections:
+            del active_connections[client_id]
 
+
+# ==================== 监控 API ====================
 
 @app.get("/api/v1/status")
 async def get_system_status():
     """获取系统状态"""
     return {
+        "status": "running",
         "orchestrator": {
-            "status": "running",
-            "tools_count": len(orchestrator.tools),
-            "tools": [tool.name for tool in orchestrator.tools]
+            "ready": orchestrator is not None,
+            "model": settings.llm_model
         },
         "connections": {
-            "active_websocket_connections": len(active_connections),
-            "client_ids": list(active_connections.keys())
+            "websocket": len(active_connections)
         },
-        "config": {
-            "llm_provider": settings.llm_provider,
-            "llm_model": settings.llm_model,
-            "max_concurrent_tasks": settings.max_concurrent_tasks
-        }
+        "timestamp": datetime.now().isoformat()
     }
 
 
-@app.post("/api/v1/tools/test")
-async def test_tools():
-    """测试本地工具功能"""
-    test_results = {}
+@app.get("/api/v1/agents")
+async def list_agents():
+    """列出所有智能体"""
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="系统未初始化")
     
-    try:
-        # 测试计算器
-        calc_request = UserRequest(message="计算 2 + 3 * 4")
-        calc_response = await orchestrator.process_request(calc_request)
-        test_results["calculator"] = {
-            "status": calc_response.status,
-            "result": calc_response.payload
-        }
-        
-        # 测试文本解析器
-        text_request = UserRequest(message="请分析这段文本：Hello world! 这是一个测试。联系邮箱：test@example.com")
-        text_response = await orchestrator.process_request(text_request)
-        test_results["text_parser"] = {
-            "status": text_response.status,
-            "result": text_response.payload
-        }
-        
-        return {
-            "message": "工具测试完成",
-            "results": test_results
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"工具测试失败: {str(e)}")
+    # 获取内置智能体信息
+    agent_info = []
+    if orchestrator and orchestrator.agent_manager:
+        agent_info = orchestrator.agent_manager.get_agent_info()
+    
+    return {
+        "count": len(agent_info),
+        "agents": agent_info
+    }
+
+
+# ==================== 开发/调试 API ====================
+
+@app.get("/api/v1/debug/config")
+async def get_debug_config():
+    """获取系统配置（仅在调试模式下可用）"""
+    if not settings.debug:
+        raise HTTPException(status_code=403, detail="仅在调试模式下可用")
+    
+    return {
+        "llm_provider": settings.llm_provider,
+        "llm_model": settings.llm_model,
+        "redis_url": settings.redis_url,
+        "rabbitmq_url": settings.rabbitmq_url
+    }
 
 
 if __name__ == "__main__":
