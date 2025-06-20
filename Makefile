@@ -24,8 +24,33 @@ help:
 # 安装依赖
 install:
 	@echo "📦 安装Python依赖..."
-	pip install -r requirements.txt
+	@echo "⚠️  推荐使用 Python 3.9-3.12 版本"
+	@echo "📝 当前 Python 版本: $(shell python --version)"
+	pip install -r requirements-simple.txt
 	@echo "✅ 依赖安装完成"
+
+# 使用 Poetry 安装（推荐）
+install-poetry:
+	@echo "📦 使用 Poetry 安装依赖..."
+	@command -v poetry >/dev/null 2>&1 || { echo "❌ Poetry 未安装. 请运行: pip install poetry"; exit 1; }
+	poetry install
+	@echo "✅ Poetry 安装完成！使用 'poetry shell' 激活虚拟环境"
+
+# 创建虚拟环境并安装
+install-venv:
+	@echo "🐍 创建虚拟环境..."
+	python -m venv venv
+	@echo "📦 在虚拟环境中安装依赖..."
+	./venv/bin/pip install --upgrade pip
+	./venv/bin/pip install -r requirements.txt
+	@echo "✅ 安装完成！使用 'source venv/bin/activate' 激活虚拟环境"
+
+# 安装开发依赖
+install-dev:
+	@echo "📦 安装开发依赖..."
+	pip install -r requirements.txt
+	pip install pytest pytest-asyncio pytest-cov black flake8 mypy pre-commit
+	@echo "✅ 开发依赖安装完成"
 
 # 项目初始化设置
 setup: install
@@ -56,8 +81,8 @@ infrastructure:
 
 # 运行测试
 test:
-	@echo "🧪 运行系统测试..."
-	python test_system.py
+	@echo "🧪 运行测试套件..."
+	python -m pytest tests/ -v --tb=short
 
 # 启动服务器
 start:

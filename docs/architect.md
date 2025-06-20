@@ -56,11 +56,13 @@
 | **移动端** | React Native | 跨平台，生态成熟，原生能力调用便捷。 |
 | **核心服务网关** | FastAPI | 异步高性能，完美支撑WebSocket和大量I/O。 |
 | **核心Agent编排** | LangGraph | 强大的内部逻辑、循环和状态管理能力。 |
-| **LLM引擎** | DeepSeek | 顶尖的语言理解、推理和函数调用能力。 |
+| **LLM引擎** | OpenAI/DeepSeek | 顶尖的语言理解、推理和函数调用能力。 |
 | **Agent间通信** | RabbitMQ | 工业级消息队列，实现系统解耦、异步通信和可靠路由。 |
-| **A2A通信协议** | 自定义JSON Schema | 遵循A2A思想，轻量、灵活、可控。 |
+| **A2A通信协议** | Google A2A Protocol | 标准化的智能体间通信协议，支持50+公司。 |
 | **长期记忆** | LangChain Memory + ChromaDB | 成熟的持久化记忆方案，实现个性化和上下文感知。 |
 | **任务状态追踪**| Redis | 高性能键值存储，用于追踪所有异步任务的实时状态。 |
+| **语音处理** | Whisper + SpeechRecognition | 高质量语音转文字和会议记录。 |
+| **视觉处理** | OpenCV + Tesseract | 图像识别、OCR、人脸检测和场景分析。 |
 
 #### **5. 核心用户体验流程 (Core User Experience Flow)**
 
