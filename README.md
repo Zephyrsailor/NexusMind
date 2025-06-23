@@ -14,7 +14,7 @@ NexusMind 是一个基于**语音和视觉**的联邦多智能体协作平台，
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   前端客户端    │────│   FastAPI网关   │────│   智能协调器    │
-│   (WebSocket)   │    │   (REST/WS)     │    │  (LLM Function) │
+│   (WebSocket)   │    │   (REST/WS)     │    │  (Orchestrator) │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                                         │
                                                         ▼
@@ -77,7 +77,8 @@ curl -sSL https://install.python-poetry.org | python3 -
 export PATH="$HOME/.local/bin:$PATH"
 
 # 安装项目依赖
-poetry install --extras "all"  # 完整功能
+poetry install --extras "core"  # 核心功能 (推荐)
+# 或 poetry install --extras "all"  # 完整功能 (需要编译pyaudio)
 # 或 poetry install --extras "client"  # 仅客户端
 # 或 poetry install  # 最小安装
 ```
@@ -104,10 +105,15 @@ cp .env.example .env
 
 #### Poetry方式 (推荐)
 ```bash
+# 方式1: 直接使用uvicorn (推荐)
+poetry run uvicorn backend.api.main:app --host 0.0.0.0 --port 8090 --reload
+
+# 方式2: 使用启动脚本
 poetry run python run_server.py
-# 或先激活环境
+
+# 方式3: 先激活环境
 poetry shell
-python run_server.py
+uvicorn backend.api.main:app --host 0.0.0.0 --port 8090 --reload
 ```
 
 #### pip方式
@@ -376,7 +382,7 @@ docker-compose -f infrastructure/docker-compose.yml logs -f
 
 ## 📋 TODOLIST
 
-### 🔥 紧急修复
+### ✅ 已完成修复
 - [x] 修复Docker服务启动文档缺失问题
 - [x] 修复配置文件multimodal_model字段缺失
 - [x] 添加正确的项目启动流程
@@ -386,6 +392,13 @@ docker-compose -f infrastructure/docker-compose.yml logs -f
 - [x] **迁移到Poetry依赖管理** ⭐
 - [x] 删除requirements.txt，统一使用pyproject.toml
 - [x] 创建Poetry使用指南
+- [x] **解决Poetry依赖安装问题** ⭐
+- [x] 移除problematic的pyaudio依赖，避免编译问题
+- [x] 验证服务器正常启动和API接口工作
+
+### 🔥 当前优先级
+- [ ] 修复pyaudio编译问题，恢复音频功能
+- [ ] 添加torch/whisper可选安装支持
 
 ### 📈 功能改进
 - [ ] 添加智能体性能监控

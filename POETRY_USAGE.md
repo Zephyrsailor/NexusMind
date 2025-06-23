@@ -129,6 +129,11 @@ poetry publish
 ### 完整安装 (推荐开发者)
 
 ```bash
+# 核心功能安装 (推荐，避免编译问题)
+poetry install --extras "core"
+poetry run uvicorn backend.api.main:app --host 0.0.0.0 --port 8090 --reload
+
+# 或完整功能 (需要编译pyaudio等)
 poetry install --extras "all"
 poetry run python run_server.py
 ```
@@ -137,7 +142,7 @@ poetry run python run_server.py
 
 ```bash
 poetry install
-poetry run python run_server.py
+poetry run uvicorn backend.api.main:app --host 0.0.0.0 --port 8090 --reload
 ```
 
 ### 客户端安装
@@ -152,6 +157,24 @@ poetry run python nexusmind_simple_chat.py
 ```bash
 poetry install --extras "speech"
 # 现在支持语音录制和识别
+```
+
+## ✅ 验证安装
+
+```bash
+# 启动服务 (推荐方式)
+poetry run uvicorn backend.api.main:app --host 0.0.0.0 --port 8090 --reload
+
+# 测试健康检查
+curl http://localhost:8090/health
+
+# 测试智能对话
+curl -X POST "http://localhost:8090/api/v1/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "你好，Poetry环境测试"}'
+
+# 查看API文档
+open http://localhost:8090/docs
 ```
 
 ## 🔄 从requirements.txt迁移
