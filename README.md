@@ -76,11 +76,14 @@ cd ..
 curl -sSL https://install.python-poetry.org | python3 -
 export PATH="$HOME/.local/bin:$PATH"
 
-# 安装项目依赖
-poetry install --extras "core"  # 核心功能 (推荐)
-# 或 poetry install --extras "all"  # 完整功能 (需要编译pyaudio)
-# 或 poetry install --extras "client"  # 仅客户端
-# 或 poetry install  # 最小安装
+# 安装项目依赖 (推荐使用智能安装脚本)
+python install_nexusmind.py
+
+# 或手动选择安装层次:
+poetry install --extras "core"    # 核心功能 (仅API服务)
+poetry install --extras "basic"   # 基础功能 (含语音、OCR，推荐) 
+poetry install --extras "ai-full" # AI完整版 (含PyTorch+Whisper)
+poetry install --extras "all"     # 全部功能
 ```
 
 #### 方式2: pip (兼容方式)
@@ -393,12 +396,15 @@ docker-compose -f infrastructure/docker-compose.yml logs -f
 - [x] 删除requirements.txt，统一使用pyproject.toml
 - [x] 创建Poetry使用指南
 - [x] **解决Poetry依赖安装问题** ⭐
-- [x] 移除problematic的pyaudio依赖，避免编译问题
-- [x] 验证服务器正常启动和API接口工作
+- [x] **恢复pyaudio音频功能** ⭐
+- [x] **实现分层依赖管理** - 支持core/basic/ai-full/all多层次安装
+- [x] **创建智能安装脚本** - 自动检测环境，提供安装选项
+- [x] 验证语音录制、识别、OCR等基础功能正常
 
 ### 🔥 当前优先级
-- [ ] 修复pyaudio编译问题，恢复音频功能
-- [ ] 添加torch/whisper可选安装支持
+- [ ] 解决torch/triton在macOS上的兼容性问题
+- [ ] 添加模型下载和缓存机制
+- [ ] 优化PyTorch安装策略 (CPU vs GPU版本)
 
 ### 📈 功能改进
 - [ ] 添加智能体性能监控
