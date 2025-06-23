@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     ollama_vision_timeout: int = 120  # 视觉模型超时时间（秒）
     ollama_max_image_size: int = 768  # 最大图像尺寸
     
+    # 多模态模型配置 (与.env中的配置对应)
+    multimodal_model: str = "Qwen/Qwen-VL-Chat"  # 多模态大模型
+    use_local_models: bool = True  # 启用本地模型
+    
     # 多模态处理配置
     max_image_size_mb: int = 10
     max_audio_duration_seconds: int = 300

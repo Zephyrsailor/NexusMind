@@ -323,7 +323,7 @@ class NexusMindOrchestrator:
                         )
                 
                 # 正常工具结果：让LLM基于结果生成最终回答
-                system_msg = SystemMessage(content="请基于工具调用的结果简洁地回答用户的问题。如果用户问'手上拿的是什么'，请只回答具体的物品名称。")
+                system_msg = SystemMessage(content="请基于工具调用的结果回答用户的问题。如果用户问'手上拿的是什么'，请只回答具体的物品名称。如果用户问'房间里有什么'，请回答房间里所有存在的东西。")
                 user_msg = HumanMessage(content=f"用户问题：{original_message}\n\n工具分析结果：{combined_tool_result}\n\n请简洁回答用户的问题：")
                 
                 # 调用LLM生成最终回答
